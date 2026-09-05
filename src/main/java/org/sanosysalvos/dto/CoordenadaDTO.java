@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class CoordenadaDTO {
     private Long idUbicacionCoordenadas;
-    private Loong idUsuario; // No usar prueba
+    private Long idUsuario; // No usar prueba
     private java.time.LocalDateTime fechaCreacion;
     
     @NotNull(message = "La latitud es obligatoria")
