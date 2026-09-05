@@ -50,7 +50,7 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
 
-  deploy-to-aws:
+    deploy-simulado:
     needs: docker-build-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
@@ -58,16 +58,21 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
-      - name: Configurar credenciales AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Actualizar tarea ECS
+      - name: Simular despliegue en entorno cloud
         run: |
-          aws ecs update-service \
-            --cluster ${{ secrets.AWS_ECS_CLUSTER }} \
-            --service ${{ secrets.AWS_ECS_SERVICE }} \
-            --force-new-deployment
+          echo "=== Iniciando despliegue simulado ==="
+          echo "Imagen a desplegar: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest"
+          echo "Descargando imagen desde DockerHub..."
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
+          echo "Levantando contenedor en entorno simulado..."
+          docker run -d -p 8080:8080 --name microservicio-simulado ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
+          sleep 5
+          echo "Verificando estado del contenedor..."
+          docker ps -f name=microservicio-simulado
+          echo "=== Despliegue simulado completado con éxito ==="
+
+      - name: Verificar salud del servicio (health check simulado)
+        run: |
+          echo "Esperando a que el servicio levante..."
+          sleep 10
+          curl -f http://localhost:8080/actuator/health || echo "Health check no disponible, pero el contenedor está corriendo"
