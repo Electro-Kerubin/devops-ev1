@@ -76,8 +76,7 @@ jobs:
         run: |
           echo "=== Iniciando despliegue simulado ==="
           docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
-          echo "Levantando contenedor en entorno simulado..."
-          docker run -d -p 8080:8080 --name microservicio-simulado \
+          docker run -d -p 8082:8082 --name microservicio-simulado \
             --network host \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/geolocation \
             -e SPRING_DATASOURCE_USERNAME=test_user \
@@ -85,18 +84,16 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
           sleep 5
           docker ps -f name=microservicio-simulado
-          echo "=== Despliegue simulado completado con éxito ==="
 
       - name: Verificar salud del servicio
         run: |
           for i in $(seq 1 12); do
-            if curl -sf http://localhost:8080/actuator/health; then
+            if curl -sf http://localhost:8082/actuator/health; then
               echo "=== Servicio saludable ==="
               exit 0
             fi
             echo "Intento $i: aún no responde, esperando 5s..."
             sleep 5
           done
-          echo "El servicio no respondió a tiempo, revisando logs:"
           docker logs microservicio-simulado
           exit 1
