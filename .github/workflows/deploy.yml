@@ -71,8 +71,17 @@ jobs:
           docker ps -f name=microservicio-simulado
           echo "=== Despliegue simulado completado con éxito ==="
 
-      - name: Verificar salud del servicio (health check simulado)
+      - name: Verificar salud del servicio
         run: |
           echo "Esperando a que el servicio levante..."
-          sleep 10
-          curl -f http://localhost:8080/actuator/health || echo "Health check no disponible, pero el contenedor está corriendo"
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:8080/actuator/health; then
+              echo "=== Servicio saludable ==="
+              exit 0
+            fi
+            echo "Intento $i: aún no responde, esperando 5s..."
+            sleep 5
+          done
+          echo "El servicio no respondió a tiempo, revisando logs del contenedor:"
+          docker logs microservicio-simulado
+          exit 1
