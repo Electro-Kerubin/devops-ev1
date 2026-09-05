@@ -95,18 +95,20 @@ Ejemplo: `feat: agregar endpoint de geocodificación inversa`
 
 ### Estructura de carpetas
 
+```
 src/
 ├── main/
-│ ├── java/org/sanosysalvos/
-│ │ ├── controller/
-│ │ ├── service/
-│ │ ├── repository/
-│ │ ├── entity/
-│ │ ├── dto/
-│ │ └── security/
-│ └── resources/
+│   ├── java/org/sanosysalvos/
+│   │   ├── controller/
+│   │   ├── service/
+│   │   ├── repository/
+│   │   ├── entity/
+│   │   ├── dto/
+│   │   └── security/
+│   └── resources/
 └── test/
-└── java/org/sanosysalvos/
+    └── java/org/sanosysalvos/
+```
 
 ---
 
@@ -193,7 +195,7 @@ Push a rama
 
 **Imagen generada:**
 ```
-dockerhub_user/imagenes-service:latest
+dockerhub_user/geolocation-service:latest
 ```
 
 **Requisitos en GitHub Secrets:**
