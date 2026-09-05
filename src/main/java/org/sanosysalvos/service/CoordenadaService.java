@@ -33,7 +33,7 @@ public class CoordenadaService {
 
     public CoordenadaDTO findById(Long id) {
         return toDTO(coordenadaRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Coordenada no encontrada con id: " + id)));
+                .orElseThrow(() -> new ResourceNotFoundException("Coordenada no encontrada con id: " + id + ". Verifique que el id sea correcto.")));
     }
 
     public CoordenadaDTO findByReporte(Long idReporte) {
