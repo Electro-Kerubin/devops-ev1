@@ -1,0 +1,99 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compilar proyecto
+        run: mvn clean compile
+
+      - name: Ejecutar tests
+        run: mvn test
+
+      - name: Empaquetar (build jar)
+        run: mvn package -DskipTests
+
+  docker-build-push:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Login a DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build y push de imagen Docker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
+
+  deploy-simulado:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: geolocation
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Simular despliegue en entorno cloud
+        run: |
+          echo "=== Iniciando despliegue simulado ==="
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
+          docker run -d -p 8082:8082 --name microservicio-simulado \
+            --network host \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/geolocation \
+            -e SPRING_DATASOURCE_USERNAME=test_user \
+            -e SPRING_DATASOURCE_PASSWORD=test_pass \
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:latest
+          sleep 5
+          docker ps -f name=microservicio-simulado
+
+      - name: Verificar salud del servicio
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:8082/actuator/health; then
+              echo "=== Servicio saludable ==="
+              exit 0
+            fi
+            echo "Intento $i: aún no responde, esperando 5s..."
+            sleep 5
+          done
+          docker logs microservicio-simulado
+          exit 1

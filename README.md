@@ -1,122 +1,403 @@
-# Microservicio de Gestión de Imágenes - SanoSysalvos
+# 📸 Sanosysalvos - Geolocation Service
 
-Microservicio responsable de la gestión, almacenamiento y procesamiento de imágenes para la plataforma SanoSysalvos.
+Microservicio especializado geolocalización para la plataforma Sanosysalvos.
 
----
+## 🚀 Quick Start
 
-## 📋 Justificación del Uso de Gitflow
+### Requisitos Previos
+- Java 21 (JDK Temurin)
+- Maven 3.8+
+- Docker & Docker Compose
+- PostgreSQL 16+
 
-Se ha adoptado **Gitflow** como estrategia de control de versiones para este proyecto por las siguientes razones:
+### Instalación
+```bash
+# Clonar repositorio
+git clone https://github.com/Electro-Kerubin/devops-ev1
+cd Geolocation-service
 
-### 1. **Separación Clara de Ambientes de Desarrollo**
-Gitflow establece ramas dedicadas para cada fase del ciclo de vida del software:
-- **`main`**: Código en producción estable y listo para desplegar
-- **`develop`**: Integración continua de características completadas
-- **`feature/*`**: Desarrollo aislado de nuevas funcionalidades
-- **`release/*`**: Preparación y ajustes previos a la producción
-- **`hotfix/*`**: Corrección urgente de errores en producción
+# Compilar proyecto
+mvn clean compile
 
-Esta separación permite que múltiples desarrolladores trabajen en paralelo sin interferencias.
+# Ejecutar tests
+mvn test
 
-### 2. **Facilita la Colaboración en Equipo**
-- Cada desarrollador trabaja en su propia rama de feature, evitando conflictos directos con el código de otros
-- Los cambios se integran de forma controlada mediante pull requests
-- Se establecen puntos de revisión antes de fusionar código a `develop` o `main`
+# Empaquetar aplicación
+mvn package
+```
 
-### 3. **Versionado Controlado y Predecible**
-- Las ramas `release` permiten preparar versiones de forma ordenada
-- Se pueden aplicar etiquetas (tags) para marcar versiones específicas
-- Facilita la generación de changelogs y documentación de cambios
+### Ejecutar Localmente
+```bash
+# Opción 1: Con Maven
+mvn spring-boot:run
 
-### 4. **Gestión de Hotfixes en Producción**
-- Si surge un error crítico en producción, se crea una rama `hotfix` desde `main`
-- La corrección se prueba y se fusiona directamente a `main` sin esperar a `develop`
-- Luego se sincroniza con `develop` para evitar regresiones
-- Esto minimiza el tiempo de respuesta ante incidentes críticos
-
-### 5. **Mayor Estabilidad de la Rama Principal**
-- La rama `main` representa siempre código productivo
-- Solo se integra código que ha sido validado y probado completamente
-- Reduce significativamente el riesgo de despliegues fallidos
-
-### 6. **Escalabilidad**
-- A medida que el equipo crece, Gitflow proporciona estructura clara
-- Las convenciones de nombres de ramas hacen que el flujo sea intuitivo
-- Facilita la onboarding de nuevos miembros del equipo
+# Opción 2: Con Docker
+docker build -t geolocation-service:latest .
+docker run -p 8082:8082 geolocation-service:latest
+```
 
 ---
 
-## 🔄 Estructura de Ramas en Gitflow
+## 📋 Estrategia de Versionado: GitFlow
+
+### ¿Por qué GitFlow?
+
+Adoptamos **GitFlow** como estrategia de branching por las siguientes razones:
+
+#### ✅ **Control y Estabilidad**
+- **`main`**: Rama de producción. Solo contiene versiones **estables y testeadas**
+- **`develop`**: Rama de integración continua. Reúne todas las características completadas
+- Garantiza que `main` siempre esté en estado deployable
+
+#### ✅ **Flujo de Trabajo Organizado**
+- **Feature branches** (`feature/*`): Desarrollo de nuevas funcionalidades
+- **Bugfix branches** (`bugfix/*`): Corrección de errores en desarrollo
+- **Release branches** (`release/*`): Preparación de versiones para producción
+- **Hotfix branches** (`hotfix/*`): Parches críticos directamente desde `main`
+
+#### ✅ **Integración Continua**
+- Cada push a `develop` **ejecuta automáticamente** los tests y build
+- Las Pull Requests permiten **revisión de código** antes de merge
+- Reduce bugs en producción gracias al CI/CD
+
+#### ✅ **Ambiente de Staging**
+- `develop` actúa como ambiente **pre-producción**
+- Los cambios se validan automáticamente antes de llegar a `main`
+- Facilita testing en un entorno similar al de producción
+
+#### ✅ **Gestión de Versiones Claras**
+- Cada release tiene **tags y versiones** claramente identificables
+- Permite rollback rápido si es necesario
+- Historial de cambios bien documentado
+
+---
+
+## 📐 Guía de Buenas Prácticas
+
+### Naming de ramas
+- `feature/<nombre-descriptivo>` — ej: feature/geocoding-endpoint
+- `hotfix/<nombre-descriptivo>` — ej: hotfix/fix-null-pointer-coordenada
+- `bugfix/<nombre-descriptivo>`
+- `release/<version>` — ej: release/1.0.0
+
+### Convención de mensajes de commit
+Usamos Conventional Commits:
+- `feat:` nueva funcionalidad
+- `fix:` corrección de bug
+- `docs:` cambios en documentación
+- `refactor:` refactorización sin cambio de comportamiento
+- `test:` agregar o modificar tests
+- `chore:` tareas de mantenimiento (configs, dependencias)
+
+Ejemplo: `feat: agregar endpoint de geocodificación inversa`
+
+---
+
+### Estructura de carpetas
+
+src/
+├── main/
+│ ├── java/org/sanosysalvos/
+│ │ ├── controller/
+│ │ ├── service/
+│ │ ├── repository/
+│ │ ├── entity/
+│ │ ├── dto/
+│ │ └── security/
+│ └── resources/
+└── test/
+└── java/org/sanosysalvos/
+
+---
+
+### Control de versiones (Semantic Versioning)
+- **MAJOR** (1.x.x → 2.0.0): cambios incompatibles en la API
+- **MINOR** (1.0.x → 1.1.0): nueva funcionalidad compatible
+- **PATCH** (1.0.0 → 1.0.1): corrección de bugs
+
+---
+
+
+## 🔄 Pipeline CI/CD
+
+Nuestro pipeline está automatizado con **GitHub Actions** y se ejecuta en cada push según la rama:
+
+### 📊 Diagrama del Flujo
+
+```
+Push a rama
+    ↓
+┌─────────────────────────────────────┐
+│  1️⃣  build-and-test (Siempre)      │
+│  └─ Compile + Test + Package       │
+└─────────────────────────────────────┘
+    ↓ (Si es develop + es push)
+┌─────────────────────────────────────┐
+│  2️⃣  docker-build-push              │
+│  └─ Build imagen Docker + Push Hub  │
+└─────────────────────────────────────┘
+    ↓ (Si es develop + es push)
+┌─────────────────────────────────────┐
+│  3️⃣  deploy-simulado                │
+│  └─ Simula deploy con PostgreSQL    │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 🎯 Descripción de Jobs del Pipeline
+
+### 1️⃣ **Job: `build-and-test`**
+
+**Cuándo se ejecuta:** En todos los pushes y Pull Requests
+
+**¿Qué hace?**
+- ✅ Descarga el código fuente
+- ✅ Instala JDK 21 (Temurin)
+- ✅ Compila el proyecto con Maven
+- ✅ Ejecuta suite de tests unitarios
+- ✅ Empaqueta la aplicación en JAR
+
+**Por qué es importante:**
+- Valida que el código compila correctamente
+- Detecta errores lógicos mediante tests
+- Genera el artefacto (JAR) necesario para siguiente etapa
+- Falla si algún test no pasa → previene regresiones
+
+**Ejemplo de salida exitosa:**
+```
+[INFO] BUILD SUCCESS
+[INFO] Total time: 2:45 min
+[INFO] Generated JAR: target/imagenes-service-1.0.0.jar
+```
+
+---
+
+### 2️⃣ **Job: `docker-build-push`**
+
+**Cuándo se ejecuta:** Solo cuando hay push a `develop` (automático)
+
+**Requisitos previos:** `build-and-test` debe completarse exitosamente
+
+**¿Qué hace?**
+- ✅ Descarga código y credenciales de DockerHub
+- ✅ Construye imagen Docker basada en el `Dockerfile`
+- ✅ Sube la imagen a DockerHub con tag `latest`
+- ✅ Registra la imagen en el repositorio público
+
+**Por qué es importante:**
+- Containeriza la aplicación para portabilidad
+- Permite desploying consistente en cualquier ambiente
+- Facilita escalado horizontal
+- Genera artefacto deployable (imagen Docker)
+
+**Imagen generada:**
+```
+dockerhub_user/imagenes-service:latest
+```
+
+**Requisitos en GitHub Secrets:**
+```
+DOCKERHUB_USERNAME  → usuario DockerHub
+DOCKERHUB_TOKEN     → token de autenticación
+DOCKERHUB_REPONAME  → nombre del repo
+```
+
+---
+
+### 3️⃣ **Job: `deploy-simulado`**
+
+**Cuándo se ejecuta:** Solo cuando hay push a `develop` (automático)
+
+**Requisitos previos:** `docker-build-push` debe completarse exitosamente
+
+**¿Qué hace?**
+- ✅ Inicia un contenedor PostgreSQL 16 (base de datos de prueba)
+- ✅ Descarga la imagen Docker construida en el paso anterior
+- ✅ Ejecuta el contenedor de la aplicación en puerto 8082
+- ✅ Espera conexión a PostgreSQL
+- ✅ Verifica salud del servicio con endpoint `/actuator/health`
+- ✅ Realiza hasta 12 intentos de verificación (60 segundos total)
+
+**Por qué es importante:**
+- Valida que el contenedor **corre correctamente** en un ambiente
+- Verifica conectividad con base de datos
+- Detecta problemas de configuración antes de producción
+- **Simula** un despliegue real sin afectar AWS
+- Proporciona logs si algo falla
+
+**Configuración de base de datos:**
+```
+POSTGRES_DB: geolocation
+POSTGRES_USER: test_user
+POSTGRES_PASSWORD: test_pass
+Puerto: 5432
+```
+
+**Verificación de salud:**
+```bash
+curl http://localhost:8082/actuator/health
+# Respuesta esperada:
+# {"status":"UP","components":{...}}
+```
+
+---
+
+## 🔑 Configuración de Secretos en GitHub
+
+Para que el pipeline funcione, configura estos secretos en:
+**Settings → Secrets and variables → Actions**
+
+| Secreto | Descripción | Ejemplo |
+|---------|-------------|---------|
+| `DOCKERHUB_USERNAME` | Usuario de tu cuenta DockerHub | `tu_usuario` |
+| `DOCKERHUB_TOKEN` | Token PAT de DockerHub | `dckr_pat_xxx...` |
+| `DOCKERHUB_REPONAME` | Nombre del repositorio Docker | `imagenes-service` |
+
+---
+
+## 📱 Ramas y Flujo de Trabajo
+
+### Estructura de Ramas
 
 ```
 main (producción)
-  ↑
-  └─← release/v1.0.0 (preparación para producción)
-  └─← hotfix/bug-crítico (correcciones urgentes)
+└─ release/1.0.0
+    └─ hotfix/patch-bug-crítico
+    
+develop (integración)
+└─ feature/nueva-funcionalidad
+└─ feature/optimizar-rendimiento
+└─ bugfix/corregir-geocodificación
+```
 
-develop (rama de integración)
-  ↑
-  └─← feature/nueva-funcionalidad (desarrollo de features)
-  └─← feature/mejora-rendimiento
-  └─← ...
+### Workflow Típico
+
+#### **Crear nueva funcionalidad:**
+```bash
+# Desde develop
+git checkout -b feature/nueva-funcionalidad develop
+
+# Hacer cambios...
+git add .
+git commit -m "feat: nueva funcionalidad"
+
+# Subir e ir a Pull Request
+git push origin feature/nueva-funcionalidad
+```
+
+#### **Preparar release (desde develop a main):**
+```bash
+git checkout -b release/1.0.0 develop
+# Actualizar versión en pom.xml
+git tag -a v1.0.0
+git push origin release/1.0.0 --tags
+# Pull Request a main
+```
+
+#### **Hotfix de emergencia (desde main):**
+```bash
+git checkout -b hotfix/patch-critico main
+# Corregir bug...
+git push origin hotfix/patch-critico
+# Pull Request a main Y a develop
 ```
 
 ---
-
-## 🚀 Cómo Usar Gitflow en Este Proyecto
-
-### Iniciar una Nueva Funcionalidad
-```bash
-git checkout -b feature/descripcion-feature develop
-# Realizar cambios
-git commit -m "descripción del cambio"
-git push origin feature/descripcion-feature
-```
-
-### Preparar una Release
-```bash
-git checkout -b release/v1.0.0 develop
-# Realizar ajustes finales y bump de versión
-git commit -m "Bump version to 1.0.0"
-git push origin release/v1.0.0
-```
-
-### Crear un Hotfix (Corrección Urgente)
-```bash
-git checkout -b hotfix/descripcion-hotfix main
-# Corregir el error
-git commit -m "Fix: descripción del fix"
-git push origin hotfix/descripcion-hotfix
-```
-
----
-
-## 📦 Instalación y Configuración
-
-[Agregar instrucciones de instalación específicas del proyecto]
 
 ## 🧪 Testing
 
-[Agregar guía de pruebas]
+### Ejecutar Tests Localmente
+```bash
+# Todos los tests
+mvn test
 
-## 📝 Convenciones de Commits
+# Test específico
+mvn test -Dtest=NombreDeTestClass
 
-Se recomienda seguir estas convenciones:
-- `feat:` Nuevas funcionalidades
-- `fix:` Corrección de bugs
-- `docs:` Cambios en documentación
-- `refactor:` Refactorización de código
-- `test:` Cambios en tests
+# Con cobertura
+mvn test jacoco:report
+```
 
-Ejemplo: `feat: agregar validación de tipo de imagen`
-
----
-
-## 👥 Contribución
-
-Consulta la documentación de Gitflow antes de contribuir. Todos los cambios deben pasar por pull request y revisión de código.
+### Convención de Nombres
+- `*Test.java` → Tests unitarios (ejecutan en CI)
+- `*IntegrationTest.java` → Tests de integración (incluidos en `mvn test`)
+- `*IT.java` → Tests de integración adicionales
 
 ---
 
-**Autor:** Rodrigo Baeza  
-**Última actualización:** 2026-09-05
+## 📊 Monitoreo del Pipeline
+
+### Verificar estado en GitHub
+1. Ve a **Actions** en el repositorio
+2. Selecciona el último workflow run
+3. Expande cada job para ver logs detallados
+
+### Troubleshooting
+
+**❌ Build falla en tests:**
+```bash
+# Revisar logs localmente
+mvn test -X
+```
+
+**❌ Docker build falla:**
+```bash
+# Revisar Dockerfile
+docker build -t imagenes-service:test .
+docker run imagenes-service:test
+```
+
+**❌ Deploy simulado falla:**
+```bash
+# Verificar conectividad a PostgreSQL
+docker logs microservicio-simulado
+curl -v http://localhost:8082/actuator/health
+```
+
+---
+
+## 🛠️ Configuración Adicional
+
+### Environment Variables
+```properties
+# application.yml / application.properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/geolocation
+spring.datasource.username=test_user
+spring.datasource.password=test_pass
+server.port=8082
+```
+
+### Dockerfile
+El proyecto incluye un `Dockerfile` optimizado para:
+- Multi-stage build (reduce tamaño)
+- JDK 21 Temurin
+- Healthcheck integrado
+
+---
+
+## 📚 Referencias
+
+- [GitFlow Guide](https://nvie.com/posts/a-successful-git-branching-model/)
+- [GitHub Actions Docs](https://docs.github.com/en/actions)
+- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
+- [Spring Boot Actuator](https://spring.io/guides/gs/actuator-service/)
+
+---
+
+## 👥 Equipo
+
+- **Desenvolvedor:** Rodrigo Baeza
+- **Estudios:** DUOC - Ingeniería DevOps
+
+---
+
+**Última actualización:** 2026-09-05  
+**Versión:** 1.0.0
+
+
+## 🤖 Uso de Inteligencia Artificial
+
+Se utilizó Claude (Anthropic) como apoyo para:
+- Debugging del pipeline de GitHub Actions (resolución de errores de configuración)
+- Redacción y estructuración de la documentación técnica (README)
