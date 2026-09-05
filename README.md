@@ -195,7 +195,7 @@ Push a rama
 
 **Imagen generada:**
 ```
-dockerhub_user/imagenes-service:latest
+dockerhub_user/geolocation-service:latest
 ```
 
 **Requisitos en GitHub Secrets:**
