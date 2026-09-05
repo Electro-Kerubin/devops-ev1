@@ -95,7 +95,7 @@ Ejemplo: `feat: agregar endpoint de geocodificación inversa`
 
 ### Estructura de carpetas
 
-\`\`\`
+```
 src/
 ├── main/
 │   ├── java/org/sanosysalvos/
@@ -108,7 +108,7 @@ src/
 │   └── resources/
 └── test/
     └── java/org/sanosysalvos/
-\`\`\`
+```
 
 ---
 
