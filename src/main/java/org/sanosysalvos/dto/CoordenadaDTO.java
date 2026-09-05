@@ -24,5 +24,9 @@ public class CoordenadaDTO {
     private String direccion;
 
     private LocalDateTime createdAt;
+
+
+
+    
 }
 
