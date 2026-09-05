@@ -112,4 +112,5 @@ class CoordenadaServiceTest {
 
         assertThrows(ResourceNotFoundException.class, () -> coordenadaService.save(dto));
     }
+    
 }
