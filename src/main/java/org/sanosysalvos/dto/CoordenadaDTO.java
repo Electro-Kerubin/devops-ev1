@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 public class CoordenadaDTO {
     private Long idUbicacionCoordenadas;
 
+    private java.time.LocalDateTime fechaCreacion;
+    
     @NotNull(message = "La latitud es obligatoria")
     private Double ubicacionLat;
 
