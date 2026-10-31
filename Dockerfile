@@ -43,7 +43,10 @@ LABEL org.opencontainers.image.title="sanosysalvos-geolocation-service" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.version="${VERSION}"
 
-# Seguridad: el proceso corre como usuario sin privilegios
+# Parches de seguridad del sistema operativo: se aplican en cada build sin esperar una imagen base nueva
+RUN apk upgrade --no-cache
+
+# Seguridad: el proceso corre como usuario sin privilegios.
 # UID/GID numéricos fijos: Kubernetes los necesita para verificar runAsNonRoot
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app -H -s /sbin/nologin app
 WORKDIR /app
