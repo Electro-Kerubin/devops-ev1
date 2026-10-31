@@ -30,7 +30,7 @@ COPY --from=test /app/src ./src
 RUN mvn -B -ntp package -DskipTests
 
 # ---- Etapa 4: producción ----
-FROM eclipse-temurin:21-jre-alpine AS prod
+FROM eclipse-temurin:24-jre-alpine AS prod
 
 # Metadatos OCI: trazabilidad de la imagen hacia el commit que la originó
 ARG GIT_SHA=unknown
