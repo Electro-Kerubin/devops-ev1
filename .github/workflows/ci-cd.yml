@@ -9,9 +9,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, pipeline-cicd]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, pipeline-cicd]
   workflow_dispatch:
 
 # Evita ejecuciones duplicadas en PRs; en main/develop nunca se cancela un despliegue en curso
