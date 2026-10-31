@@ -1,6 +1,6 @@
 # Sanosysalvos - Geolocation Service
 
-Microservicio de geolocalización de la plataforma Sanosysalvos (Spring Boot 3.5, Java 21, PostgreSQL, JWT).
+Microservicio de geolocalización de la plataforma Sanosysalvos (Spring Boot 4.1, Java 21, PostgreSQL, JWT).
 Este repositorio incluye el **pipeline CI/CD completo en GitHub Actions**, contenerización, orquestación (Docker Compose y Kubernetes) y controles de calidad y seguridad (Evaluación Parcial 2, DOY0101 - Ingeniería DevOps).
 
 ## Tabla de contenidos
@@ -139,6 +139,8 @@ Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en ca
 **Bloqueos:** además de los gates del pipeline, se recomienda activar *branch protection* (ver [sección 9](#9-configuración-requerida-en-github)) para que ningún PR se pueda mezclar en `main` con checks en rojo.
 
 **Alertas:** cuando un `push` a `main` o `develop` falla, el job `notify-failure` abre automáticamente un **issue** que lista el commit, los jobs fallidos y el enlace a la ejecución. GitHub además notifica por correo a los participantes del repositorio.
+
+**Gestión de vulnerabilidades (caso real de este proyecto):** la primera ejecución de Snyk bloqueó el pipeline con 33 hallazgos (7 críticos, 26 altos) en Spring Boot 3.5.16 (Tomcat, Spring Framework, Spring Security, Jackson, Micrometer). La línea 3.5 ya no recibe correcciones (`spring-framework` 6.2.19 es la última 6.2), por lo que la remediación fue **migrar a Spring Boot 4.1.2** en lugar de silenciar alertas. Además se reemplazó `jjwt-jackson` por `jjwt-gson`, lo que elimina del classpath Jackson 2 (9 avisos propios). Resultado verificado: el árbol de dependencias pasó de 19 avisos a 0 en OSV.dev, y las 79 pruebas siguen en verde.
 
 **Gobernanza adicional:**
 - Si falta un token de seguridad, el job **falla explícitamente** (nunca se omite el análisis en silencio).
