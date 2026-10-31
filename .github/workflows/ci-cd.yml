@@ -167,6 +167,9 @@ jobs:
           # Opcionales: definirlas como variables del repo si difieren de los valores por defecto de SonarCloud
           SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
           SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+          # El plan gratuito de SonarCloud solo permite leer el quality gate de PRs y de la rama principal.
+          # En develop el análisis se sube igual, pero el gate ya se exigió en el PR que llegó a esa rama.
+          SONAR_WAIT_GATE: ${{ github.event_name == 'pull_request' || github.ref_name == 'main' }}
         run: |
           # SonarCloud usa claves de organización en minúsculas; por defecto <owner>_<repo>
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
@@ -179,7 +182,7 @@ jobs:
             -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
             -Dsonar.organization="${SONAR_ORGANIZATION}" \
             -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.wait=${SONAR_WAIT_GATE}
 
   # ──────────────────────────────────────────────────────────────────────────
   # 4. Manifiestos de Kubernetes: render con kustomize + validación de esquema
