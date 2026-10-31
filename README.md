@@ -217,7 +217,7 @@ commit (SHA completo)
 | `DOCKERHUB_TOKEN` | Access token de DockerHub |
 | `DOCKERHUB_REPONAME` | Nombre del repositorio de la imagen en DockerHub |
 
-**Variables (opcionales):** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`. Por defecto se usan `<owner>` y `<owner>_<repo>`; definirlas solo si el proyecto en SonarCloud tiene otros valores.
+**Variables (opcionales):** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`. Por defecto se usan `<owner>` y `<owner>_<repo>` en minúsculas (como los genera SonarCloud); definirlas solo si el proyecto en SonarCloud tiene otros valores.
 
 **Branch protection (recomendado):** *Settings → Branches → Add rule* para `main` y `develop`: exigir Pull Request y que pasen los checks `Snyk - dependencias (SCA)`, `Pruebas unitarias y cobertura (JaCoCo)` y `SonarCloud - calidad y seguridad (SAST)`.
 
