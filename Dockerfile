@@ -8,13 +8,13 @@
 # ---------------------------------------------------------------------------
 
 # ---- Etapa 1: dependencias (cache) ----
-FROM maven:3.9.9-eclipse-temurin-21 AS dependencies
+FROM maven:3.9-eclipse-temurin-26 AS dependencies
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -ntp dependency:go-offline
 
 # ---- Etapa 2: pruebas unitarias ----
-FROM maven:3.9.9-eclipse-temurin-21 AS test
+FROM maven:3.9-eclipse-temurin-26 AS test
 WORKDIR /app
 COPY --from=dependencies /root/.m2 /root/.m2
 COPY pom.xml lombok.config ./
@@ -22,7 +22,7 @@ COPY src ./src
 RUN mvn -B -ntp test
 
 # ---- Etapa 3: compilación (depende de que "test" haya pasado) ----
-FROM maven:3.9.9-eclipse-temurin-21 AS compile
+FROM maven:3.9-eclipse-temurin-26 AS compile
 WORKDIR /app
 COPY --from=dependencies /root/.m2 /root/.m2
 COPY --from=test /app/pom.xml /app/lombok.config ./
