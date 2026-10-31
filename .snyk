@@ -1,0 +1,16 @@
+# Política de Snyk: excepciones de seguridad documentadas y con vencimiento.
+# Regla: solo se acepta un riesgo si NO existe versión corregida y NO es alcanzable desde la aplicación.
+# Cada excepción expira y debe revisarse; el gate del pipeline (--severity-threshold=high) sigue activo para todo lo demás.
+version: v1.25.0
+ignore:
+  SNYK-JAVA-ORGGLASSFISHJAXB-20883142:
+    - '*':
+        reason: >-
+          XXE en org.glassfish.jaxb:jaxb-core 4.0.9, dependencia transitiva de hibernate-core.
+          No existe versión corregida (4.0.9 es la última publicada; Snyk indica "no direct upgrade or patch").
+          No es alcanzable: JAXB solo interpreta archivos de mapeo XML propios del empaquetado de Hibernate;
+          el servicio mapea entidades con anotaciones y su API solo recibe y entrega JSON,
+          por lo que ningún XML controlado por un usuario llega al parser.
+        expires: 2027-01-31T00:00:00.000Z
+        created: 2026-10-31T00:00:00.000Z
+patch: {}

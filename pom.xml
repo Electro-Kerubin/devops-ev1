@@ -18,6 +18,8 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Parche de seguridad: Jackson 3 (databind) 3.1.8 corrige la deserializacion insegura presente en 3.1.7, que gestiona Boot 4.1.2 -->
+        <jackson-bom.version>3.1.8</jackson-bom.version>
         <jacoco.version>0.8.13</jacoco.version>
         <!-- Política de calidad: el build falla si la cobertura de líneas baja de este valor -->
         <jacoco.minimum.coverage>0.80</jacoco.minimum.coverage>

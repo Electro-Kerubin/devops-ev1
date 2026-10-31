@@ -140,7 +140,14 @@ Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en ca
 
 **Alertas:** cuando un `push` a `main` o `develop` falla, el job `notify-failure` abre automáticamente un **issue** que lista el commit, los jobs fallidos y el enlace a la ejecución. GitHub además notifica por correo a los participantes del repositorio.
 
-**Gestión de vulnerabilidades (caso real de este proyecto):** la primera ejecución de Snyk bloqueó el pipeline con 33 hallazgos (7 críticos, 26 altos) en Spring Boot 3.5.16 (Tomcat, Spring Framework, Spring Security, Jackson, Micrometer). La línea 3.5 ya no recibe correcciones (`spring-framework` 6.2.19 es la última 6.2), por lo que la remediación fue **migrar a Spring Boot 4.1.2** en lugar de silenciar alertas. Además se reemplazó `jjwt-jackson` por `jjwt-gson`, lo que elimina del classpath Jackson 2 (9 avisos propios). Resultado verificado: el árbol de dependencias pasó de 19 avisos a 0 en OSV.dev, y las 79 pruebas siguen en verde.
+**Gestión de vulnerabilidades (caso real de este proyecto):** la primera ejecución de Snyk bloqueó el pipeline con 33 hallazgos (7 críticos, 26 altos) en Spring Boot 3.5.16 (Tomcat, Spring Framework, Spring Security, Jackson, Micrometer). La línea 3.5 ya no recibe correcciones (`spring-framework` 6.2.19 es la última 6.2), por lo que la remediación fue **migrar a Spring Boot 4.1.2** en lugar de silenciar alertas. Además se reemplazó `jjwt-jackson` por `jjwt-gson`, lo que elimina del classpath Jackson 2 (9 avisos propios). Tras la migración Snyk bajó de 33 a 2 hallazgos, que se trataron así:
+
+| Hallazgo | Tratamiento |
+|---|---|
+| Jackson 3 `databind` 3.1.7, deserialización insegura (**crítico**, vía Flyway) | **Corregido:** se fija `jackson-bom.version` en 3.1.8 en el `pom.xml` |
+| `jaxb-core` 4.0.9, XXE (**alto**, vía Hibernate) | **Excepción documentada** en [`.snyk`](.snyk): no existe versión corregida (4.0.9 es la última) y no es alcanzable, porque la API solo procesa JSON y JAXB únicamente lee mapeos propios de Hibernate. **Vence el 2027-01-31** y debe revisarse; Dependabot propondrá la actualización en cuanto se publique un parche |
+
+La política `.snyk` solo permite excepciones con razón y vencimiento, y el umbral `high` del pipeline sigue bloqueando cualquier otro hallazgo.
 
 **Gobernanza adicional:**
 - Si falta un token de seguridad, el job **falla explícitamente** (nunca se omite el análisis en silencio).
