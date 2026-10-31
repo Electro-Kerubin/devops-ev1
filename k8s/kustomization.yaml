@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sanosysalvos
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+
+# SOLO DESARROLLO/DEMO. En un clúster real, crear el Secret fuera del repositorio:
+#   kubectl -n sanosysalvos create secret generic geolocation-secrets \
+#     --from-literal=DB_PASSWORD=... --from-literal=JWT_SECRET=$(openssl rand -base64 48)
+# (o usar External Secrets / Sealed Secrets) y eliminar este generador.
+secretGenerator:
+  - name: geolocation-secrets
+    literals:
+      - DB_PASSWORD=postgres
+      - JWT_SECRET=c2Fub3N5c2Fsdm9zLXNlY3JldC1rZXktcGFyYS1qd3QtMjAyNg==
+generatorOptions:
+  disableNameSuffixHash: true
+
+# El pipeline reemplaza el tag por el SHA del commit: kustomize edit set image ...
+images:
+  - name: sanosysalvos/geolocation-service
+    newName: sanosysalvos/geolocation-service
+    newTag: latest

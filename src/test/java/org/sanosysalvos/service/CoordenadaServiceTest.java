@@ -112,5 +112,103 @@ class CoordenadaServiceTest {
 
         assertThrows(ResourceNotFoundException.class, () -> coordenadaService.save(dto));
     }
-    
+
+    @Test
+    void findByReporte_debeRetornarCoordenada_cuandoExiste() {
+        when(coordenadaRepository.findByIdReporte(1L)).thenReturn(Optional.of(coordenada));
+
+        assertEquals(1L, coordenadaService.findByReporte(1L).getIdReporte());
+    }
+
+    @Test
+    void findByReporte_debeLanzarException_cuandoNoExiste() {
+        when(coordenadaRepository.findByIdReporte(99L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> coordenadaService.findByReporte(99L));
+    }
+
+    @Test
+    void findByComuna_debeRetornarCoordenadasDeLaComuna() {
+        when(coordenadaRepository.findByComuna_IdComuna(1L)).thenReturn(List.of(coordenada));
+
+        List<CoordenadaDTO> result = coordenadaService.findByComuna(1L);
+
+        assertEquals(1, result.size());
+        assertEquals(1L, result.get(0).getIdComuna());
+    }
+
+    @Test
+    void save_noDebeFallar_cuandoLaActualizacionDelReporteLanzaSQLException() throws Exception {
+        CoordenadaDTO dto = new CoordenadaDTO();
+        dto.setUbicacionLat(-33.045);
+        dto.setUbicacionLon(-71.610);
+        dto.setIdReporte(1L);
+        dto.setIdComuna(1L);
+
+        when(comunaRepository.findById(1L)).thenReturn(Optional.of(comuna));
+        when(coordenadaRepository.save(any())).thenReturn(coordenada);
+        when(dataSource.getConnection()).thenThrow(new java.sql.SQLException("sin conexión"));
+
+        CoordenadaDTO result = assertDoesNotThrow(() -> coordenadaService.save(dto));
+
+        assertNotNull(result);
+        verify(coordenadaRepository).save(any());
+    }
+
+    @Test
+    void update_debeActualizarCoordenadaYReporte() throws Exception {
+        CoordenadaDTO dto = new CoordenadaDTO();
+        dto.setUbicacionLat(-33.1);
+        dto.setUbicacionLon(-71.7);
+        dto.setIdReporte(1L);
+        dto.setIdComuna(1L);
+        dto.setDireccion("Calle Nueva 456");
+
+        when(coordenadaRepository.findById(1L)).thenReturn(Optional.of(coordenada));
+        when(comunaRepository.findById(1L)).thenReturn(Optional.of(comuna));
+        when(coordenadaRepository.save(coordenada)).thenReturn(coordenada);
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
+
+        CoordenadaDTO result = coordenadaService.update(1L, dto);
+
+        assertEquals(-33.1, result.getUbicacionLat());
+        assertEquals("Calle Nueva 456", result.getDireccion());
+        verify(preparedStatement).executeUpdate();
+    }
+
+    @Test
+    void update_debeLanzarException_cuandoCoordenadaNoExiste() {
+        when(coordenadaRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> coordenadaService.update(99L, new CoordenadaDTO()));
+    }
+
+    @Test
+    void update_debeLanzarException_cuandoComunaNoExiste() {
+        CoordenadaDTO dto = new CoordenadaDTO();
+        dto.setIdComuna(99L);
+        when(coordenadaRepository.findById(1L)).thenReturn(Optional.of(coordenada));
+        when(comunaRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> coordenadaService.update(1L, dto));
+    }
+
+    @Test
+    void delete_debeEliminar_cuandoExiste() {
+        when(coordenadaRepository.findById(1L)).thenReturn(Optional.of(coordenada));
+
+        coordenadaService.delete(1L);
+
+        verify(coordenadaRepository).deleteById(1L);
+    }
+
+    @Test
+    void delete_debeLanzarException_cuandoNoExiste() {
+        when(coordenadaRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> coordenadaService.delete(99L));
+        verify(coordenadaRepository, never()).deleteById(any());
+    }
 }
