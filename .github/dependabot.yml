@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Dependencias Maven (SCA continuo: PRs automáticos al aparecer parches de seguridad)
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    target-branch: develop
+    labels: [dependencies]
+    groups:
+      spring-boot:
+        patterns: ["org.springframework.boot*"]
+
+  # Imágenes base del Dockerfile
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: develop
+    labels: [dependencies, docker]
+
+  # Versiones de las acciones usadas en los workflows
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: develop
+    labels: [dependencies, ci]

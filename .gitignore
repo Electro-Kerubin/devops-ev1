@@ -41,3 +41,5 @@ build/
 .idea/encodings.xml
 .idea/misc.xml
 .idea/vcs.xml
+# Secretos locales
+.env

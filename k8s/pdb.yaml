@@ -1,0 +1,12 @@
+# Garantiza al menos 1 réplica disponible durante mantenciones de nodos (drain)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: geolocation-service
+  labels:
+    app.kubernetes.io/name: geolocation-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: geolocation-service

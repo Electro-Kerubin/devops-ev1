@@ -1,0 +1,458 @@
+name: CI/CD Pipeline
+
+# Flujo: snyk-scan ─┐
+#        test ──────┴─> sonar-analysis ─┐
+#                                       ├─> build-image -> scan-image -> publish-image -> deploy
+#        validate-k8s ──────────────────┘                                      (notify-failure si algo falla)
+# Cada etapa es un "gate": si falla, las siguientes NO se ejecutan (needs) y se abre un issue de alerta.
+
+on:
+  push:
+    branches: [main, develop, pipeline-cicd]
+  pull_request:
+    branches: [main, develop, pipeline-cicd]
+  workflow_dispatch:
+
+# Evita ejecuciones duplicadas en PRs; en main/develop nunca se cancela un despliegue en curso
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Principio de mínimo privilegio: cada job eleva solo lo que necesita
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+
+jobs:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 1. SCA: vulnerabilidades en dependencias (Snyk). Bloquea si hay severidad >= high
+  # ──────────────────────────────────────────────────────────────────────────
+  snyk-scan:
+    name: Snyk - dependencias (SCA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Verificar que existe el secreto SYNK
+        env:
+          SNYK_TOKEN: ${{ secrets.SYNK }}
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "::error::Falta el secreto SYNK (token de Snyk) (Settings > Secrets and variables > Actions). El análisis de seguridad es obligatorio."
+            exit 1
+          fi
+
+      - name: Instalar Snyk CLI
+        run: npm install -g snyk
+
+      - name: Snyk test (bloquea con severidad high o superior)
+        env:
+          SNYK_TOKEN: ${{ secrets.SYNK }}
+        run: snyk test --severity-threshold=high --json-file-output=snyk-report.json
+
+      - name: Subir reporte de Snyk
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-report
+          path: snyk-report.json
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 2. Pruebas unitarias + cobertura JaCoCo. Falla si la cobertura baja del umbral del pom (80 %)
+  # ──────────────────────────────────────────────────────────────────────────
+  test:
+    name: Pruebas unitarias y cobertura (JaCoCo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Compilar, probar y verificar cobertura
+        run: mvn -B -ntp clean verify
+
+      - name: Resumen de cobertura
+        if: always()
+        run: |
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import csv
+          rows = list(csv.DictReader(open("target/site/jacoco/jacoco.csv")))
+          miss = sum(int(r["LINE_MISSED"]) for r in rows); cov = sum(int(r["LINE_COVERED"]) for r in rows)
+          bmiss = sum(int(r["BRANCH_MISSED"]) for r in rows); bcov = sum(int(r["BRANCH_COVERED"]) for r in rows)
+          print("### Cobertura de pruebas (JaCoCo)")
+          print(f"- Líneas: **{cov / (cov + miss):.1%}** ({cov}/{cov + miss})")
+          print(f"- Ramas: **{(bcov / (bcov + bmiss) if bcov + bmiss else 1):.1%}** ({bcov}/{bcov + bmiss})")
+          print("- Umbral mínimo de líneas (quality gate): **80 %**")
+          PY
+          fi
+
+      - name: Subir reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+
+      - name: Subir reportes de pruebas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 3. SAST + quality gate (SonarCloud). Espera el veredicto y bloquea si no se cumple
+  # ──────────────────────────────────────────────────────────────────────────
+  sonar-analysis:
+    name: SonarCloud - calidad y seguridad (SAST)
+    runs-on: ubuntu-latest
+    needs: [snyk-scan, test]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # historial completo: Sonar atribuye "código nuevo" correctamente
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Cache de SonarCloud
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Verificar que existe el secreto TOKENINGDEVOPS
+        env:
+          SONAR_TOKEN: ${{ secrets.TOKENINGDEVOPS }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::Falta el secreto TOKENINGDEVOPS (token de SonarCloud) (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - name: Análisis SonarCloud (espera el quality gate)
+        env:
+          SONAR_TOKEN: ${{ secrets.TOKENINGDEVOPS }}
+          # Opcionales: definirlas como variables del repo si difieren de los valores por defecto de SonarCloud
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+          # El plan gratuito de SonarCloud solo permite leer el quality gate de PRs y de la rama principal.
+          # En develop el análisis se sube igual, pero el gate ya se exigió en el PR que llegó a esa rama.
+          SONAR_WAIT_GATE: ${{ github.event_name == 'pull_request' || github.ref_name == 'main' }}
+        run: |
+          # SonarCloud usa claves de organización en minúsculas; por defecto <owner>_<repo>
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SONAR_ORGANIZATION="${SONAR_ORGANIZATION:-$OWNER}"
+          SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-${OWNER}_${REPO}}"
+          echo "Organización SonarCloud: ${SONAR_ORGANIZATION}"
+          echo "Project key SonarCloud:  ${SONAR_PROJECT_KEY}"
+          mvn -B -ntp verify org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar \
+            -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+            -Dsonar.organization="${SONAR_ORGANIZATION}" \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.qualitygate.wait=${SONAR_WAIT_GATE}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 4. Manifiestos de Kubernetes: render con kustomize + validación de esquema
+  # ──────────────────────────────────────────────────────────────────────────
+  validate-k8s:
+    name: Validar manifiestos de Kubernetes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Renderizar con kustomize y validar con kubeconform
+        run: |
+          kubectl kustomize k8s > rendered.yaml
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.7.0 \
+            -strict -summary -kubernetes-version 1.30.0 - < rendered.yaml
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 5. Imagen Docker, en tres jobs consecutivos: construir -> escanear -> publicar.
+  #    La imagen se exporta como artefacto: lo que se escanea y se publica es EXACTAMENTE lo construido.
+  # ──────────────────────────────────────────────────────────────────────────
+  build-image:
+    name: Construir imagen Docker
+    runs-on: ubuntu-latest
+    needs: [sonar-analysis, validate-k8s]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Variables de trazabilidad
+        id: vars
+        run: |
+          echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # La construcción ejecuta la etapa "test" del Dockerfile: si fallan las pruebas, no hay imagen
+      - name: Construir imagen y exportarla como archivo
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          provenance: false
+          tags: app-scan:ci
+          outputs: type=docker,dest=${{ runner.temp }}/app-image.tar
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.vars.outputs.date }}
+            VERSION=${{ steps.vars.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Subir imagen como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-image
+          path: ${{ runner.temp }}/app-image.tar
+          retention-days: 1          # solo es un intermedio entre jobs
+          compression-level: 1
+
+  scan-image:
+    name: Escanear imagen (Snyk Container)
+    runs-on: ubuntu-latest
+    needs: build-image
+    timeout-minutes: 20
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Descargar imagen construida
+        uses: actions/download-artifact@v4
+        with:
+          name: app-image
+          path: ${{ runner.temp }}
+
+      - name: Cargar imagen en Docker
+        run: docker load --input "${{ runner.temp }}/app-image.tar"
+
+      - name: Instalar Snyk CLI
+        run: npm install -g snyk
+
+      - name: Snyk Container (bloquea con severidad critical)
+        env:
+          SNYK_TOKEN: ${{ secrets.SYNK }}
+        run: snyk container test app-scan:ci --file=Dockerfile --severity-threshold=critical --json-file-output=snyk-container-report.json
+
+      - name: Subir reporte del escaneo de imagen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snyk-container-report
+          path: snyk-container-report.json
+          if-no-files-found: ignore
+
+  publish-image:
+    name: Publicar imagen en DockerHub
+    runs-on: ubuntu-latest
+    needs: scan-image
+    # Solo se publica si pasaron TODOS los gates anteriores y es un push (no un PR)
+    if: github.event_name == 'push'
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+      digest: ${{ steps.digest.outputs.digest }}
+    env:
+      IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}
+    steps:
+      - name: Variables de trazabilidad
+        id: vars
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Descargar imagen escaneada
+        uses: actions/download-artifact@v4
+        with:
+          name: app-image
+          path: ${{ runner.temp }}
+
+      - name: Cargar imagen en Docker
+        run: docker load --input "${{ runner.temp }}/app-image.tar"
+
+      - name: Tags de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+
+      - name: Login a DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Etiquetar y publicar la imagen escaneada
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $TAGS; do
+            echo "Publicando $tag"
+            docker tag app-scan:ci "$tag"
+            docker push "$tag"
+          done
+
+      - name: Obtener digest publicado
+        id: digest
+        env:
+          TAG_SHA: ${{ env.IMAGE }}:${{ steps.vars.outputs.tag }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$TAG_SHA" --format '{{.Manifest.Digest}}')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Digest publicado: $digest"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 6. Despliegue automático en entorno simulado (Docker Compose en el runner)
+  #    develop -> staging | main -> production (GitHub Environments dejan historial de despliegues)
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Desplegar (${{ github.ref_name == 'main' && 'production' || 'staging' }})
+    runs-on: ubuntu-latest
+    needs: publish-image
+    if: github.event_name == 'push'
+    timeout-minutes: 20
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    env:
+      APP_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPONAME }}:${{ needs.publish-image.outputs.tag }}
+      GIT_SHA: ${{ github.sha }}
+      APP_REPLICAS: '2'
+      GATEWAY_PORT: '8082'
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Login a DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Credenciales efímeras por despliegue: no hay secretos estáticos en el entorno simulado
+      - name: Generar credenciales efímeras
+        run: |
+          JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+          POSTGRES_PASSWORD=$(openssl rand -hex 16)
+          echo "::add-mask::$JWT_SECRET"
+          echo "::add-mask::$POSTGRES_PASSWORD"
+          echo "JWT_SECRET=$JWT_SECRET" >> "$GITHUB_ENV"
+          echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Desplegar con Docker Compose (imagen publicada, tag = SHA del commit)
+        run: |
+          echo "Desplegando $APP_IMAGE"
+          docker compose pull geolocation-service
+          docker compose up -d --no-build --wait --wait-timeout 240
+
+      - name: Verificar trazabilidad (la imagen en ejecución corresponde a este commit)
+        run: |
+          for id in $(docker compose ps -q geolocation-service); do
+            rev=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$id")
+            echo "contenedor ${id::12}: revision=$rev"
+            if [ "$rev" != "$GITHUB_SHA" ]; then
+              echo "::error::La imagen desplegada ($rev) no coincide con el commit ($GITHUB_SHA)"
+              exit 1
+            fi
+          done
+
+      - name: Smoke test funcional (health, seguridad JWT, CRUD, GeoJSON)
+        run: bash scripts/smoke-test.sh "http://localhost:${GATEWAY_PORT}"
+
+      - name: Prueba de escalado horizontal (2 -> 3 réplicas)
+        run: |
+          docker compose up -d --no-build --scale geolocation-service=3 --wait --wait-timeout 240
+          running=$(docker compose ps --status running -q geolocation-service | wc -l)
+          echo "Réplicas en ejecución: $running"
+          [ "$running" -eq 3 ] || { echo "::error::Se esperaban 3 réplicas"; exit 1; }
+          bash scripts/smoke-test.sh "http://localhost:${GATEWAY_PORT}"
+
+      - name: Resumen del despliegue
+        if: success()
+        run: |
+          {
+            echo "### Despliegue exitoso (${{ github.ref_name == 'main' && 'production' || 'staging' }})"
+            echo "| Campo | Valor |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| Imagen | \`${APP_IMAGE}\` |"
+            echo "| Digest | \`${{ needs.publish-image.outputs.digest }}\` |"
+            echo "| Ejecución | ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Logs de los contenedores (solo si falló)
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+
+      - name: Limpiar entorno
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 7. Alerta: si cualquier gate falla en main/develop se abre un issue con el detalle
+  # ──────────────────────────────────────────────────────────────────────────
+  notify-failure:
+    name: Alerta de fallo del pipeline
+    runs-on: ubuntu-latest
+    needs: [snyk-scan, test, sonar-analysis, validate-k8s, build-image, scan-image, publish-image, deploy]
+    if: failure() && github.event_name == 'push'
+    permissions:
+      issues: write
+    steps:
+      - name: Abrir issue de alerta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const { data } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId, per_page: 100,
+            });
+            const failed = data.jobs.filter(j => j.conclusion === 'failure').map(j => `- ${j.name}`).join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Pipeline falló en ${context.ref.replace('refs/heads/', '')} (${context.sha.slice(0, 7)})`,
+              body: `El pipeline CI/CD falló y se **bloqueó** el avance a las etapas siguientes.\n\n` +
+                    `**Commit:** ${context.sha}\n**Ejecución:** ${run}\n\n**Jobs fallidos:**\n${failed}\n\n` +
+                    `Revisar los reportes adjuntos (snyk-report, jacoco-report, surefire-reports) en la ejecución.`,
+            });
