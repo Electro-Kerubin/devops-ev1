@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar JDK
         uses: actions/setup-java@v4
@@ -79,7 +79,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar JDK
         uses: actions/setup-java@v4
@@ -133,7 +133,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0          # historial completo: Sonar atribuye "código nuevo" correctamente
 
@@ -192,7 +192,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Renderizar con kustomize y validar con kubeconform
         run: |
@@ -211,7 +211,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Variables de trazabilidad
         id: vars
@@ -253,7 +253,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Descargar imagen construida
         uses: actions/download-artifact@v4
@@ -361,7 +361,7 @@ jobs:
       GATEWAY_PORT: '8082'
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Login a DockerHub
         uses: docker/login-action@v3
