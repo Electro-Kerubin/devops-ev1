@@ -64,7 +64,7 @@ jobs:
 
       - name: Subir reporte de Snyk
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: snyk-report
           path: snyk-report.json
@@ -109,7 +109,7 @@ jobs:
 
       - name: Subir reporte de cobertura
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jacoco-report
           path: target/site/jacoco/
@@ -117,7 +117,7 @@ jobs:
 
       - name: Subir reportes de pruebas
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: surefire-reports
           path: target/surefire-reports/
@@ -239,7 +239,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Subir imagen como artefacto
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: app-image
           path: ${{ runner.temp }}/app-image.tar
@@ -274,7 +274,7 @@ jobs:
 
       - name: Subir reporte del escaneo de imagen
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: snyk-container-report
           path: snyk-container-report.json
