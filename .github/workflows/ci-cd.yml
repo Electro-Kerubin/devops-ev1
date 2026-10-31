@@ -166,9 +166,9 @@ jobs:
           # Opcionales: definirlas como variables del repo si difieren de los valores por defecto de SonarCloud
           SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
           SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
-          # El plan gratuito de SonarCloud solo permite leer el quality gate de PRs y de la rama principal.
-          # En develop el análisis se sube igual, pero el gate ya se exigió en el PR que llegó a esa rama.
-          SONAR_WAIT_GATE: ${{ github.event_name == 'pull_request' || github.ref_name == 'main' }}
+          # En el plan gratuito de SonarCloud la API solo entrega el quality gate de los Pull Requests;
+          # en pushes (develop/main) el análisis se sube igual, pero el gate ya se exigió en el PR que llegó ahí.
+          SONAR_WAIT_GATE: ${{ github.event_name == 'pull_request' }}
         run: |
           # SonarCloud usa claves de organización en minúsculas; por defecto <owner>_<repo>
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
