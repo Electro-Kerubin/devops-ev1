@@ -96,7 +96,7 @@ flowchart LR
 |---|---|---|---|
 | 1 | `snyk-scan` | Escaneo SCA de dependencias Maven | Hay vulnerabilidad de severidad **high** o superior |
 | 2 | `test` | `mvn verify`: pruebas + reporte y regla JaCoCo | Falla una prueba o la cobertura de líneas es **< 80 %** |
-| 3 | `sonar-analysis` | Análisis estático en SonarCloud y espera del quality gate (`sonar.qualitygate.wait`) en PRs y en `main`. En `develop` solo se sube el análisis, porque el plan gratuito no permite leer el gate de ramas no principales; ya se exigió en el PR | El quality gate de Sonar no se cumple |
+| 3 | `sonar-analysis` | Análisis estático en SonarCloud y espera del quality gate (`sonar.qualitygate.wait`) **en Pull Requests**, que es donde el plan gratuito permite leer el veredicto. En los `push` a `develop` y `main` el análisis se sube a SonarCloud pero no se espera el gate; como esas ramas solo reciben código mediante PRs, ya pasó por el gate. Con *branch protection* esto es equivalente a exigirlo | El quality gate de Sonar no se cumple |
 | 4 | `validate-k8s` | Renderiza `k8s/` con kustomize y valida el esquema con kubeconform (modo estricto) | Un manifiesto es inválido |
 | 5 | `build-image` | Construye la imagen (ejecuta las pruebas del Dockerfile) y la exporta como artefacto | Falla una prueba o el build |
 | 6 | `scan-image` | Carga esa misma imagen y la escanea con Snyk Container | Vulnerabilidad **critical** en la imagen |
