@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configurar JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configurar JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
@@ -138,7 +138,7 @@ jobs:
           fetch-depth: 0          # historial completo: Sonar atribuye "código nuevo" correctamente
 
       - name: Configurar JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
