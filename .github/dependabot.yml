@@ -19,6 +19,12 @@ updates:
       interval: weekly
     target-branch: develop
     labels: [dependencies, docker]
+    ignore:
+      # Se permanece en Java 21 (LTS), alineado con java.version del pom.xml: solo parches y menores
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "maven"
+        update-types: ["version-update:semver-major"]
 
   # Versiones de las acciones usadas en los workflows
   - package-ecosystem: github-actions
@@ -27,3 +33,6 @@ updates:
       interval: weekly
     target-branch: develop
     labels: [dependencies, ci]
+    groups:
+      github-actions:
+        patterns: ["*"]
