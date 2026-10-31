@@ -68,6 +68,7 @@ dependencies ─> test ─> compile ─> prod
 | Etapa `dependencies` separada | Las dependencias se cachean en una capa: si solo cambia el código, no se vuelven a descargar |
 | Etapa `test` antes de `compile` | **Si una prueba falla, la imagen no se construye** (calidad también a nivel de imagen) |
 | Imagen final `eclipse-temurin:21-jre-alpine` | Solo JRE + JAR: sin Maven, sin código fuente, superficie de ataque mínima |
+| `apk upgrade` en la etapa final | Aplica en cada build los parches de seguridad del sistema operativo ya publicados, sin esperar una imagen base nueva (caso real: CVE crítico de `openssl` detectado por Snyk Container) |
 | Usuario `10001:10001` (no-root) | Principio de mínimo privilegio; UID numérico para que Kubernetes pueda verificar `runAsNonRoot` |
 | `HEALTHCHECK` sobre `/actuator/health` | Docker y Compose conocen el estado real de la app |
 | `MaxRAMPercentage=75` | La JVM respeta el límite de memoria del contenedor |
@@ -134,7 +135,7 @@ Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en ca
 
 | Capa | Herramienta | Momento | Acción ante fallo |
 |---|---|---|---|
-| Dependencias (SCA, continuo) | **Dependabot** (Maven, Docker, GitHub Actions; semanal) | Fuera del pipeline | Abre PRs automáticos con parches |
+| Dependencias (SCA, continuo) | **Dependabot** (Maven, Docker, GitHub Actions; semanal) | Fuera del pipeline | Abre PRs automáticos con parches. Las imágenes base no saltan de versión mayor (se permanece en Java 21 LTS) y las acciones de GitHub llegan agrupadas en un solo PR |
 | Dependencias (SCA, en cada cambio) | **Snyk** `--severity-threshold=high` | Job 1 | **Bloquea** el pipeline |
 | Código fuente (SAST) | **SonarCloud** + quality gate | Job 3 | **Bloquea** el pipeline |
 | Imagen y sistema base | **Snyk Container** `--severity-threshold=critical` | Job `scan-image`, antes de publicar | **Bloquea** la publicación |
