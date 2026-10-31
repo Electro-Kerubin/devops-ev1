@@ -23,7 +23,7 @@ Este repositorio incluye el **pipeline CI/CD completo en GitHub Actions**, conte
 
 | IE | Qué se pide | Dónde está implementado |
 |---|---|---|
-| **IE1** Contenedores | Dockerfile + build de imagen en el pipeline | [`Dockerfile`](Dockerfile) multi-stage (dependencias → test → compile → prod), usuario no-root, healthcheck, labels OCI; job `docker-image` |
+| **IE1** Contenedores | Dockerfile + build de imagen en el pipeline | [`Dockerfile`](Dockerfile) multi-stage (dependencias → test → compile → prod), usuario no-root, healthcheck, labels OCI; jobs `build-image`, `scan-image` y `publish-image` |
 | **IE2** Pruebas automatizadas | Pruebas unitarias en el pipeline según políticas de calidad | 79 pruebas JUnit/Mockito/MockMvc, JaCoCo con **umbral mínimo de 80 %** que rompe el build; jobs `test` y etapa `test` del Dockerfile |
 | **IE3** Seguridad y escalabilidad | Dependabot + Snyk/SonarQube; alertas o bloqueos | Dependabot ([`dependabot.yml`](.github/dependabot.yml)), Snyk (dependencias e imagen), SonarCloud con quality gate; todos **bloquean**; issue automático de alerta; límites de recursos y HPA |
 | **IE4** Despliegue y trazabilidad | Despliegue automático en entorno simulado + README | Job `deploy` (Docker Compose, entornos `staging`/`production`), imagen etiquetada con el SHA del commit y verificada tras el despliegue |
@@ -84,9 +84,11 @@ Archivo: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Se ejecut
 flowchart LR
     A[snyk-scan<br/>SCA dependencias] --> C
     B[test<br/>JUnit + JaCoCo 80%] --> C[sonar-analysis<br/>SAST + quality gate]
-    C --> E[docker-image<br/>build + Snyk Container + push]
+    C --> E[build-image<br/>construir]
     D[validate-k8s<br/>kustomize + kubeconform] --> E
-    E --> F[deploy<br/>staging / production]
+    E --> S[scan-image<br/>Snyk Container]
+    S --> P[publish-image<br/>push a DockerHub]
+    P --> F[deploy<br/>staging / production]
     F -. falla cualquier etapa .-> G[notify-failure<br/>issue de alerta]
 ```
 
@@ -96,12 +98,15 @@ flowchart LR
 | 2 | `test` | `mvn verify`: pruebas + reporte y regla JaCoCo | Falla una prueba o la cobertura de líneas es **< 80 %** |
 | 3 | `sonar-analysis` | Análisis estático en SonarCloud y espera del quality gate (`sonar.qualitygate.wait`) en PRs y en `main`. En `develop` solo se sube el análisis, porque el plan gratuito no permite leer el gate de ramas no principales; ya se exigió en el PR | El quality gate de Sonar no se cumple |
 | 4 | `validate-k8s` | Renderiza `k8s/` con kustomize y valida el esquema con kubeconform (modo estricto) | Un manifiesto es inválido |
-| 5 | `docker-image` | Construye la imagen (ejecuta las pruebas del Dockerfile), la escanea con Snyk Container y **solo si pasa** la publica en DockerHub con SBOM y provenance | Vulnerabilidad **critical** en la imagen |
-| 6 | `deploy` | Despliega con Docker Compose en el runner, verifica trazabilidad, smoke test y escalado | Cualquier verificación falla |
-| 7 | `notify-failure` | Abre un issue con el commit, el enlace a la ejecución y los jobs fallidos | (Se ejecuta solo si algo falló en un `push`) |
+| 5 | `build-image` | Construye la imagen (ejecuta las pruebas del Dockerfile) y la exporta como artefacto | Falla una prueba o el build |
+| 6 | `scan-image` | Carga esa misma imagen y la escanea con Snyk Container | Vulnerabilidad **critical** en la imagen |
+| 7 | `publish-image` | Etiqueta y publica en DockerHub **la imagen ya escaneada** (solo en `push`) | Falla el login o el push |
+| 8 | `deploy` | Despliega con Docker Compose en el runner, verifica trazabilidad, smoke test y escalado | Cualquier verificación falla |
+| 9 | `notify-failure` | Abre un issue con el commit, el enlace a la ejecución y los jobs fallidos | (Se ejecuta solo si algo falló en un `push`) |
 
 Detalles de diseño:
 
+- **Construir, escanear y publicar son jobs separados y consecutivos:** la imagen viaja como artefacto entre ellos, de modo que lo que se escanea es byte a byte lo que se publica. Cada etapa tiene su propio estado y log.
 - **Gates encadenados con `needs`:** una etapa solo corre si las anteriores pasaron; la publicación de la imagen y el despliegue quedan protegidos por todos los controles.
 - **Paralelismo:** `snyk-scan`, `test` y `validate-k8s` corren en paralelo para acortar el tiempo total.
 - **Cachés:** dependencias Maven (`setup-java`), caché de Sonar y caché de capas Docker (`type=gha`).
@@ -132,7 +137,7 @@ Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en ca
 | Dependencias (SCA, continuo) | **Dependabot** (Maven, Docker, GitHub Actions; semanal) | Fuera del pipeline | Abre PRs automáticos con parches |
 | Dependencias (SCA, en cada cambio) | **Snyk** `--severity-threshold=high` | Job 1 | **Bloquea** el pipeline |
 | Código fuente (SAST) | **SonarCloud** + quality gate | Job 3 | **Bloquea** el pipeline |
-| Imagen y sistema base | **Snyk Container** `--severity-threshold=critical` | Job 5, antes de publicar | **Bloquea** la publicación |
+| Imagen y sistema base | **Snyk Container** `--severity-threshold=critical` | Job `scan-image`, antes de publicar | **Bloquea** la publicación |
 | Manifiestos K8s | kubeconform `-strict` | Job 4 | **Bloquea** el pipeline |
 | Secretos | GitHub Secrets; credenciales efímeras en el despliegue | Job 6 | n/a |
 
@@ -192,7 +197,7 @@ Cada artefacto lleva el identificador del commit que lo originó:
 ```
 commit (SHA completo)
   └─> imagen DockerHub  tag: sha-<7 caracteres>  + label OCI org.opencontainers.image.revision = SHA completo
-        └─> SBOM y provenance adjuntos a la imagen (digest inmutable)
+        └─> digest inmutable registrado en el resumen del despliegue
               └─> despliegue en el entorno (staging | production) con APP_IMAGE = ese tag
                     └─> verificación automática: el label de cada contenedor en ejecución == SHA del commit
 ```
