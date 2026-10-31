@@ -224,7 +224,7 @@ jobs:
 
       # La construcción ejecuta la etapa "test" del Dockerfile: si fallan las pruebas, no hay imagen
       - name: Construir imagen y exportarla como archivo
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
