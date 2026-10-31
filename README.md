@@ -1,405 +1,246 @@
-# 📸 Sanosysalvos - Geolocation Service
+# Sanosysalvos - Geolocation Service
 
-Microservicio especializado geolocalización para la plataforma Sanosysalvos.
+Microservicio de geolocalización de la plataforma Sanosysalvos (Spring Boot 3.5, Java 21, PostgreSQL, JWT).
+Este repositorio incluye el **pipeline CI/CD completo en GitHub Actions**, contenerización, orquestación (Docker Compose y Kubernetes) y controles de calidad y seguridad (Evaluación Parcial 2, DOY0101 - Ingeniería DevOps).
 
-## 🚀 Quick Start
+## Tabla de contenidos
 
-### Requisitos Previos
-- Java 21 (JDK Temurin)
-- Maven 3.8+
-- Docker & Docker Compose
-- PostgreSQL 16+
+1. [Resumen y mapa de la rúbrica](#1-resumen-y-mapa-de-la-rúbrica)
+2. [Quick start](#2-quick-start)
+3. [Contenerización (Dockerfile multi-stage)](#3-contenerización-dockerfile-multi-stage)
+4. [Pipeline CI/CD](#4-pipeline-cicd)
+5. [Calidad: pruebas y cobertura](#5-calidad-pruebas-y-cobertura)
+6. [Seguridad: análisis, bloqueos y alertas](#6-seguridad-análisis-bloqueos-y-alertas)
+7. [Orquestación y escalabilidad](#7-orquestación-y-escalabilidad)
+8. [Trazabilidad: del commit a producción](#8-trazabilidad-del-commit-a-producción)
+9. [Configuración requerida en GitHub](#9-configuración-requerida-en-github)
+10. [Estrategia de ramas (GitFlow)](#10-estrategia-de-ramas-gitflow)
+11. [Equipo y uso de IA](#11-equipo-y-uso-de-ia)
 
-### Instalación
+---
+
+## 1. Resumen y mapa de la rúbrica
+
+| IE | Qué se pide | Dónde está implementado |
+|---|---|---|
+| **IE1** Contenedores | Dockerfile + build de imagen en el pipeline | [`Dockerfile`](Dockerfile) multi-stage (dependencias → test → compile → prod), usuario no-root, healthcheck, labels OCI; job `docker-image` |
+| **IE2** Pruebas automatizadas | Pruebas unitarias en el pipeline según políticas de calidad | 79 pruebas JUnit/Mockito/MockMvc, JaCoCo con **umbral mínimo de 80 %** que rompe el build; jobs `test` y etapa `test` del Dockerfile |
+| **IE3** Seguridad y escalabilidad | Dependabot + Snyk/SonarQube; alertas o bloqueos | Dependabot ([`dependabot.yml`](.github/dependabot.yml)), Snyk (dependencias e imagen), SonarCloud con quality gate; todos **bloquean**; issue automático de alerta; límites de recursos y HPA |
+| **IE4** Despliegue y trazabilidad | Despliegue automático en entorno simulado + README | Job `deploy` (Docker Compose, entornos `staging`/`production`), imagen etiquetada con el SHA del commit y verificada tras el despliegue |
+| **IE5** Orquestación | Kubernetes o Docker Compose | [`docker-compose.yml`](docker-compose.yml) (réplicas + balanceador) **y** [`k8s/`](k8s) (Deployment, HPA, PDB, NetworkPolicy, StatefulSet) |
+
+---
+
+## 2. Quick start
+
+Requisitos: Java 21, Maven 3.9+, Docker con Compose v2.
+
 ```bash
-# Clonar repositorio
-git clone https://github.com/Electro-Kerubin/devops-ev1
-cd Geolocation-service
+# Compilar, probar y verificar cobertura (mismo comando que usa el pipeline)
+mvn clean verify
 
-# Compilar proyecto
-mvn clean compile
+# Levantar todo el stack (gateway nginx + 2 réplicas + PostgreSQL)
+docker compose up -d --build --wait
 
-# Ejecutar tests
-mvn test
+# Escalar a 4 réplicas sin tiempo de caída
+APP_REPLICAS=4 docker compose up -d --no-build --wait
 
-# Empaquetar aplicación
-mvn package
+# Probar el despliegue (health, seguridad JWT, CRUD, GeoJSON)
+bash scripts/smoke-test.sh http://localhost:8082
+
+# Apagar y borrar datos
+docker compose down -v
 ```
 
-### Ejecutar Localmente
-```bash
-# Opción 1: Con Maven
-mvn spring-boot:run
+La configuración se parametriza con variables de entorno (ver [`.env.example`](.env.example)). Los valores por defecto son **solo para desarrollo**.
 
-# Opción 2: Con Docker
-docker build -t geolocation-service:latest .
-docker run -p 8082:8082 geolocation-service:latest
+---
+
+## 3. Contenerización (Dockerfile multi-stage)
+
+```
+dependencies ─> test ─> compile ─> prod
+ (cache .m2)   (mvn test) (mvn package) (JRE alpine + JAR)
+```
+
+| Decisión | Motivo |
+|---|---|
+| Etapa `dependencies` separada | Las dependencias se cachean en una capa: si solo cambia el código, no se vuelven a descargar |
+| Etapa `test` antes de `compile` | **Si una prueba falla, la imagen no se construye** (calidad también a nivel de imagen) |
+| Imagen final `eclipse-temurin:21-jre-alpine` | Solo JRE + JAR: sin Maven, sin código fuente, superficie de ataque mínima |
+| Usuario `10001:10001` (no-root) | Principio de mínimo privilegio; UID numérico para que Kubernetes pueda verificar `runAsNonRoot` |
+| `HEALTHCHECK` sobre `/actuator/health` | Docker y Compose conocen el estado real de la app |
+| `MaxRAMPercentage=75` | La JVM respeta el límite de memoria del contenedor |
+| Labels OCI (`revision`, `created`, `version`) | Trazabilidad: toda imagen declara el commit que la originó |
+| [`.dockerignore`](.dockerignore) | Contexto de build pequeño y sin secretos |
+
+---
+
+## 4. Pipeline CI/CD
+
+Archivo: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). Se ejecuta en `push` a `main` y `develop`, y en Pull Requests hacia ambas.
+
+```mermaid
+flowchart LR
+    A[snyk-scan<br/>SCA dependencias] --> C
+    B[test<br/>JUnit + JaCoCo 80%] --> C[sonar-analysis<br/>SAST + quality gate]
+    C --> E[docker-image<br/>build + Snyk Container + push]
+    D[validate-k8s<br/>kustomize + kubeconform] --> E
+    E --> F[deploy<br/>staging / production]
+    F -. falla cualquier etapa .-> G[notify-failure<br/>issue de alerta]
+```
+
+| # | Job | Qué hace | Bloquea si... |
+|---|---|---|---|
+| 1 | `snyk-scan` | Escaneo SCA de dependencias Maven | Hay vulnerabilidad de severidad **high** o superior |
+| 2 | `test` | `mvn verify`: pruebas + reporte y regla JaCoCo | Falla una prueba o la cobertura de líneas es **< 80 %** |
+| 3 | `sonar-analysis` | Análisis estático en SonarCloud y espera del quality gate (`sonar.qualitygate.wait=true`) | El quality gate de Sonar no se cumple |
+| 4 | `validate-k8s` | Renderiza `k8s/` con kustomize y valida el esquema con kubeconform (modo estricto) | Un manifiesto es inválido |
+| 5 | `docker-image` | Construye la imagen (ejecuta las pruebas del Dockerfile), la escanea con Snyk Container y **solo si pasa** la publica en DockerHub con SBOM y provenance | Vulnerabilidad **critical** en la imagen |
+| 6 | `deploy` | Despliega con Docker Compose en el runner, verifica trazabilidad, smoke test y escalado | Cualquier verificación falla |
+| 7 | `notify-failure` | Abre un issue con el commit, el enlace a la ejecución y los jobs fallidos | (Se ejecuta solo si algo falló en un `push`) |
+
+Detalles de diseño:
+
+- **Gates encadenados con `needs`:** una etapa solo corre si las anteriores pasaron; la publicación de la imagen y el despliegue quedan protegidos por todos los controles.
+- **Paralelismo:** `snyk-scan`, `test` y `validate-k8s` corren en paralelo para acortar el tiempo total.
+- **Cachés:** dependencias Maven (`setup-java`), caché de Sonar y caché de capas Docker (`type=gha`).
+- **Permisos mínimos:** el workflow parte con `contents: read`; solo `notify-failure` recibe `issues: write`.
+- **`concurrency`:** en PRs se cancela la ejecución anterior; en `main`/`develop` nunca se cancela un despliegue en curso.
+- **Artefactos:** `snyk-report`, `snyk-container-report`, `jacoco-report` y `surefire-reports` quedan adjuntos a cada ejecución.
+
+---
+
+## 5. Calidad: pruebas y cobertura
+
+**Política de calidad:** la cobertura de líneas debe ser **>= 80 %**; el umbral está en el `pom.xml` (`jacoco.minimum.coverage`) y la regla `jacoco:check` rompe `mvn verify` si no se cumple. Cobertura actual: **~98 %** (79 pruebas).
+
+| Capa | Pruebas | Casos críticos cubiertos |
+|---|---|---|
+| Servicios (`CoordenadaService`, `ComunaService`, `RegionService`, `MapaDeCalorService`) | JUnit 5 + Mockito | Éxito, recurso inexistente (404), integridad referencial (comuna/región inexistente), `delete` sin borrar si no existe, fallo SQL tolerado al actualizar el reporte |
+| Seguridad (`JwtFilter`) | Unitarias | Sin header, token válido, expirado, firmado con otra clave, malformado |
+| Controladores (REST + seguridad real) | `@WebMvcTest` + MockMvc | Sin token → 403, token inválido → 401, validación de entrada → 400 con detalle por campo, 201/204, GeoJSON con orden `[lon, lat]`, decodificación de geohash |
+
+Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en cada ejecución). `lombok.config` marca el código generado por Lombok para que no infle ni distorsione la cobertura.
+
+---
+
+## 6. Seguridad: análisis, bloqueos y alertas
+
+| Capa | Herramienta | Momento | Acción ante fallo |
+|---|---|---|---|
+| Dependencias (SCA, continuo) | **Dependabot** (Maven, Docker, GitHub Actions; semanal) | Fuera del pipeline | Abre PRs automáticos con parches |
+| Dependencias (SCA, en cada cambio) | **Snyk** `--severity-threshold=high` | Job 1 | **Bloquea** el pipeline |
+| Código fuente (SAST) | **SonarCloud** + quality gate | Job 3 | **Bloquea** el pipeline |
+| Imagen y sistema base | **Snyk Container** `--severity-threshold=critical` | Job 5, antes de publicar | **Bloquea** la publicación |
+| Manifiestos K8s | kubeconform `-strict` | Job 4 | **Bloquea** el pipeline |
+| Secretos | GitHub Secrets; credenciales efímeras en el despliegue | Job 6 | n/a |
+
+**Bloqueos:** además de los gates del pipeline, se recomienda activar *branch protection* (ver [sección 9](#9-configuración-requerida-en-github)) para que ningún PR se pueda mezclar en `main` con checks en rojo.
+
+**Alertas:** cuando un `push` a `main` o `develop` falla, el job `notify-failure` abre automáticamente un **issue** que lista el commit, los jobs fallidos y el enlace a la ejecución. GitHub además notifica por correo a los participantes del repositorio.
+
+**Gobernanza adicional:**
+- Si falta un token de seguridad, el job **falla explícitamente** (nunca se omite el análisis en silencio).
+- El despliegue genera `JWT_SECRET` y la contraseña de BD **aleatorios por ejecución** y los enmascara en los logs.
+- Contenedores sin privilegios: `cap_drop: ALL`, `no-new-privileges`, sistema de archivos de solo lectura (`read_only` + `tmpfs /tmp`), BD sin puertos publicados.
+
+---
+
+## 7. Orquestación y escalabilidad
+
+### Docker Compose ([`docker-compose.yml`](docker-compose.yml))
+
+```
+cliente ─> gateway (nginx, :8082) ─> geolocation-service (N réplicas) ─> postgres
+```
+
+- **Healthchecks encadenados** con `depends_on: condition: service_healthy`: Postgres → app → gateway. Nada arranca antes de que su dependencia esté realmente lista.
+- **Escalado horizontal:** `APP_REPLICAS` / `--scale`; el gateway reparte las peticiones entre réplicas con el DNS interno de Docker (round-robin), sin reiniciarse al escalar.
+- **Límites de recursos** (`deploy.resources`): app 1 CPU / 768 MB (reserva 0,5 CPU / 384 MB), Postgres 0,5 CPU / 512 MB, gateway 0,25 CPU / 128 MB.
+- Red interna aislada; solo el gateway publica un puerto.
+
+### Kubernetes ([`k8s/`](k8s))
+
+Se aplica con `kubectl apply -k k8s` (requiere un clúster; el pipeline solo **valida** los manifiestos).
+
+| Recurso | Configuración relevante |
+|---|---|
+| `Deployment` | 2 réplicas, `RollingUpdate` con `maxUnavailable: 0` (sin caída), `topologySpreadConstraints`, probes `startup`/`readiness`/`liveness`, requests/limits, `runAsNonRoot`, `readOnlyRootFilesystem`, `drop ALL`, seccomp `RuntimeDefault` |
+| `HorizontalPodAutoscaler` | Entre 2 y 6 réplicas por CPU 70 % y memoria 80 %; reduce con ventana de 5 min para evitar *flapping* |
+| `PodDisruptionBudget` | `minAvailable: 1` durante mantenciones de nodos |
+| `StatefulSet` PostgreSQL | Volumen persistente de 1 Gi, probes con `pg_isready` |
+| `NetworkPolicy` | Postgres solo acepta tráfico de los pods de la aplicación |
+| `Namespace` | Pod Security Standard `restricted` |
+| `ConfigMap` / `Secret` | Configuración separada de la imagen; el Secret del repo es solo para demo (ver comentario en `kustomization.yaml`) |
+
+---
+
+## 8. Trazabilidad: del commit a producción
+
+Cada artefacto lleva el identificador del commit que lo originó:
+
+```
+commit (SHA completo)
+  └─> imagen DockerHub  tag: sha-<7 caracteres>  + label OCI org.opencontainers.image.revision = SHA completo
+        └─> SBOM y provenance adjuntos a la imagen (digest inmutable)
+              └─> despliegue en el entorno (staging | production) con APP_IMAGE = ese tag
+                    └─> verificación automática: el label de cada contenedor en ejecución == SHA del commit
+```
+
+- **Entornos de GitHub:** `develop` → `staging`, `main` → `production`. La pestaña *Environments / Deployments* del repositorio muestra el historial de qué commit se desplegó, cuándo y quién lo originó.
+- **No se despliega `latest`:** el despliegue usa el tag inmutable por SHA; `latest` solo se publica desde `main`.
+- **Verificación post-despliegue:** el job `deploy` falla si la imagen en ejecución no corresponde al commit.
+- **Resumen por ejecución:** el job escribe commit, imagen, digest y enlace a la ejecución en el *Job summary*.
+- **Cobertura y hallazgos de seguridad** quedan asociados a la misma ejecución como artefactos.
+
+---
+
+## 9. Configuración requerida en GitHub
+
+**Settings → Secrets and variables → Actions → Secrets:**
+
+| Secreto | Descripción |
+|---|---|
+| `SYNK` | Token de Snyk (app.snyk.io → Account settings → Auth Token) |
+| `TOKENINGDEVOPS` | Token de SonarCloud (sonarcloud.io → My Account → Security) |
+| `DOCKERHUB_USERNAME` | Usuario de DockerHub |
+| `DOCKERHUB_TOKEN` | Access token de DockerHub |
+| `DOCKERHUB_REPONAME` | Nombre del repositorio de la imagen en DockerHub |
+
+**Variables (opcionales):** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`. Por defecto se usan `<owner>` y `<owner>_<repo>`; definirlas solo si el proyecto en SonarCloud tiene otros valores.
+
+**Branch protection (recomendado):** *Settings → Branches → Add rule* para `main` y `develop`: exigir Pull Request y que pasen los checks `Snyk - dependencias (SCA)`, `Pruebas unitarias y cobertura (JaCoCo)` y `SonarCloud - calidad y seguridad (SAST)`.
+
+**Dependabot:** se activa solo al existir [`dependabot.yml`](.github/dependabot.yml); apuntar a la rama `develop`.
+
+---
+
+## 10. Estrategia de ramas (GitFlow)
+
+- **`main`**: producción; solo versiones estables. Despliega a `production`.
+- **`develop`**: integración; despliega a `staging`.
+- **`feature/*`**, **`bugfix/*`**: desarrollo desde `develop`, se integran por Pull Request.
+- **`release/*`** y **`hotfix/*`**: preparación de versiones y parches críticos desde `main`.
+
+Convención de commits (Conventional Commits): `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`. Versionado semántico (MAJOR.MINOR.PATCH).
+
+```
+src/main/java/org/sanosysalvos/{controller,service,repository,entity,dto,security,exception}
+src/test/java/org/sanosysalvos/...
+k8s/        manifiestos Kubernetes (kustomize)
+deploy/     configuración del gateway nginx
+scripts/    smoke-test.sh
+.github/    workflows/ci-cd.yml y dependabot.yml
 ```
 
 ---
 
-## 📋 Estrategia de Versionado: GitFlow
+## 11. Equipo y uso de IA
 
-### ¿Por qué GitFlow?
+- **Desarrollador:** Rodrigo Baeza
+- **Curso:** DOY0101 - Ingeniería DevOps, DUOC UC
 
-Adoptamos **GitFlow** como estrategia de branching por las siguientes razones:
+### Uso de Inteligencia Artificial
 
-#### ✅ **Control y Estabilidad**
-- **`main`**: Rama de producción. Solo contiene versiones **estables y testeadas**
-- **`develop`**: Rama de integración continua. Reúne todas las características completadas
-- Garantiza que `main` siempre esté en estado deployable
-
-#### ✅ **Flujo de Trabajo Organizado**
-- **Feature branches** (`feature/*`): Desarrollo de nuevas funcionalidades
-- **Bugfix branches** (`bugfix/*`): Corrección de errores en desarrollo
-- **Release branches** (`release/*`): Preparación de versiones para producción
-- **Hotfix branches** (`hotfix/*`): Parches críticos directamente desde `main`
-
-#### ✅ **Integración Continua**
-- Cada push a `develop` **ejecuta automáticamente** los tests y build
-- Las Pull Requests permiten **revisión de código** antes de merge
-- Reduce bugs en producción gracias al CI/CD
-
-#### ✅ **Ambiente de Staging**
-- `develop` actúa como ambiente **pre-producción**
-- Los cambios se validan automáticamente antes de llegar a `main`
-- Facilita testing en un entorno similar al de producción
-
-#### ✅ **Gestión de Versiones Claras**
-- Cada release tiene **tags y versiones** claramente identificables
-- Permite rollback rápido si es necesario
-- Historial de cambios bien documentado
-
----
-
-## 📐 Guía de Buenas Prácticas
-
-### Naming de ramas
-- `feature/<nombre-descriptivo>` — ej: feature/geocoding-endpoint
-- `hotfix/<nombre-descriptivo>` — ej: hotfix/fix-null-pointer-coordenada
-- `bugfix/<nombre-descriptivo>`
-- `release/<version>` — ej: release/1.0.0
-
-### Convención de mensajes de commit
-Usamos Conventional Commits:
-- `feat:` nueva funcionalidad
-- `fix:` corrección de bug
-- `docs:` cambios en documentación
-- `refactor:` refactorización sin cambio de comportamiento
-- `test:` agregar o modificar tests
-- `chore:` tareas de mantenimiento (configs, dependencias)
-
-Ejemplo: `feat: agregar endpoint de geocodificación inversa`
-
----
-
-### Estructura de carpetas
-
-```
-src/
-├── main/
-│   ├── java/org/sanosysalvos/
-│   │   ├── controller/
-│   │   ├── service/
-│   │   ├── repository/
-│   │   ├── entity/
-│   │   ├── dto/
-│   │   └── security/
-│   └── resources/
-└── test/
-    └── java/org/sanosysalvos/
-```
-
----
-
-### Control de versiones (Semantic Versioning)
-- **MAJOR** (1.x.x → 2.0.0): cambios incompatibles en la API
-- **MINOR** (1.0.x → 1.1.0): nueva funcionalidad compatible
-- **PATCH** (1.0.0 → 1.0.1): corrección de bugs
-
----
-
-
-## 🔄 Pipeline CI/CD
-
-Nuestro pipeline está automatizado con **GitHub Actions** y se ejecuta en cada push según la rama:
-
-### 📊 Diagrama del Flujo
-
-```
-Push a rama
-    ↓
-┌─────────────────────────────────────┐
-│  1️⃣  build-and-test (Siempre)      │
-│  └─ Compile + Test + Package       │
-└─────────────────────────────────────┘
-    ↓ (Si es develop + es push)
-┌─────────────────────────────────────┐
-│  2️⃣  docker-build-push              │
-│  └─ Build imagen Docker + Push Hub  │
-└─────────────────────────────────────┘
-    ↓ (Si es develop + es push)
-┌─────────────────────────────────────┐
-│  3️⃣  deploy-simulado                │
-│  └─ Simula deploy con PostgreSQL    │
-└─────────────────────────────────────┘
-```
-
----
-
-## 🎯 Descripción de Jobs del Pipeline
-
-### 1️⃣ **Job: `build-and-test`**
-
-**Cuándo se ejecuta:** En todos los pushes y Pull Requests
-
-**¿Qué hace?**
-- ✅ Descarga el código fuente
-- ✅ Instala JDK 21 (Temurin)
-- ✅ Compila el proyecto con Maven
-- ✅ Ejecuta suite de tests unitarios
-- ✅ Empaqueta la aplicación en JAR
-
-**Por qué es importante:**
-- Valida que el código compila correctamente
-- Detecta errores lógicos mediante tests
-- Genera el artefacto (JAR) necesario para siguiente etapa
-- Falla si algún test no pasa → previene regresiones
-
-**Ejemplo de salida exitosa:**
-```
-[INFO] BUILD SUCCESS
-[INFO] Total time: 2:45 min
-[INFO] Generated JAR: target/imagenes-service-1.0.0.jar
-```
-
----
-
-### 2️⃣ **Job: `docker-build-push`**
-
-**Cuándo se ejecuta:** Solo cuando hay push a `develop` (automático)
-
-**Requisitos previos:** `build-and-test` debe completarse exitosamente
-
-**¿Qué hace?**
-- ✅ Descarga código y credenciales de DockerHub
-- ✅ Construye imagen Docker basada en el `Dockerfile`
-- ✅ Sube la imagen a DockerHub con tag `latest`
-- ✅ Registra la imagen en el repositorio público
-
-**Por qué es importante:**
-- Containeriza la aplicación para portabilidad
-- Permite desploying consistente en cualquier ambiente
-- Facilita escalado horizontal
-- Genera artefacto deployable (imagen Docker)
-
-**Imagen generada:**
-```
-dockerhub_user/geolocation-service:latest
-```
-
-**Requisitos en GitHub Secrets:**
-```
-DOCKERHUB_USERNAME  → usuario DockerHub
-DOCKERHUB_TOKEN     → token de autenticación
-DOCKERHUB_REPONAME  → nombre del repo
-```
-
----
-
-### 3️⃣ **Job: `deploy-simulado`**
-
-**Cuándo se ejecuta:** Solo cuando hay push a `develop` (automático)
-
-**Requisitos previos:** `docker-build-push` debe completarse exitosamente
-
-**¿Qué hace?**
-- ✅ Inicia un contenedor PostgreSQL 16 (base de datos de prueba)
-- ✅ Descarga la imagen Docker construida en el paso anterior
-- ✅ Ejecuta el contenedor de la aplicación en puerto 8082
-- ✅ Espera conexión a PostgreSQL
-- ✅ Verifica salud del servicio con endpoint `/actuator/health`
-- ✅ Realiza hasta 12 intentos de verificación (60 segundos total)
-
-**Por qué es importante:**
-- Valida que el contenedor **corre correctamente** en un ambiente
-- Verifica conectividad con base de datos
-- Detecta problemas de configuración antes de producción
-- **Simula** un despliegue real sin afectar AWS
-- Proporciona logs si algo falla
-
-**Configuración de base de datos:**
-```
-POSTGRES_DB: geolocation
-POSTGRES_USER: test_user
-POSTGRES_PASSWORD: test_pass
-Puerto: 5432
-```
-
-**Verificación de salud:**
-```bash
-curl http://localhost:8082/actuator/health
-# Respuesta esperada:
-# {"status":"UP","components":{...}}
-```
-
----
-
-## 🔑 Configuración de Secretos en GitHub
-
-Para que el pipeline funcione, configura estos secretos en:
-**Settings → Secrets and variables → Actions**
-
-| Secreto | Descripción | Ejemplo |
-|---------|-------------|---------|
-| `DOCKERHUB_USERNAME` | Usuario de tu cuenta DockerHub | `tu_usuario` |
-| `DOCKERHUB_TOKEN` | Token PAT de DockerHub | `dckr_pat_xxx...` |
-| `DOCKERHUB_REPONAME` | Nombre del repositorio Docker | `imagenes-service` |
-
----
-
-## 📱 Ramas y Flujo de Trabajo
-
-### Estructura de Ramas
-
-```
-main (producción)
-└─ release/1.0.0
-    └─ hotfix/patch-bug-crítico
-    
-develop (integración)
-└─ feature/nueva-funcionalidad
-└─ feature/optimizar-rendimiento
-└─ bugfix/corregir-geocodificación
-```
-
-### Workflow Típico
-
-#### **Crear nueva funcionalidad:**
-```bash
-# Desde develop
-git checkout -b feature/nueva-funcionalidad develop
-
-# Hacer cambios...
-git add .
-git commit -m "feat: nueva funcionalidad"
-
-# Subir e ir a Pull Request
-git push origin feature/nueva-funcionalidad
-```
-
-#### **Preparar release (desde develop a main):**
-```bash
-git checkout -b release/1.0.0 develop
-# Actualizar versión en pom.xml
-git tag -a v1.0.0
-git push origin release/1.0.0 --tags
-# Pull Request a main
-```
-
-#### **Hotfix de emergencia (desde main):**
-```bash
-git checkout -b hotfix/patch-critico main
-# Corregir bug...
-git push origin hotfix/patch-critico
-# Pull Request a main Y a develop
-```
-
----
-
-## 🧪 Testing
-
-### Ejecutar Tests Localmente
-```bash
-# Todos los tests
-mvn test
-
-# Test específico
-mvn test -Dtest=NombreDeTestClass
-
-# Con cobertura
-mvn test jacoco:report
-```
-
-### Convención de Nombres
-- `*Test.java` → Tests unitarios (ejecutan en CI)
-- `*IntegrationTest.java` → Tests de integración (incluidos en `mvn test`)
-- `*IT.java` → Tests de integración adicionales
-
----
-
-## 📊 Monitoreo del Pipeline
-
-### Verificar estado en GitHub
-1. Ve a **Actions** en el repositorio
-2. Selecciona el último workflow run
-3. Expande cada job para ver logs detallados
-
-### Troubleshooting
-
-**❌ Build falla en tests:**
-```bash
-# Revisar logs localmente
-mvn test -X
-```
-
-**❌ Docker build falla:**
-```bash
-# Revisar Dockerfile
-docker build -t imagenes-service:test .
-docker run imagenes-service:test
-```
-
-**❌ Deploy simulado falla:**
-```bash
-# Verificar conectividad a PostgreSQL
-docker logs microservicio-simulado
-curl -v http://localhost:8082/actuator/health
-```
-
----
-
-## 🛠️ Configuración Adicional
-
-### Environment Variables
-```properties
-# application.yml / application.properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/geolocation
-spring.datasource.username=test_user
-spring.datasource.password=test_pass
-server.port=8082
-```
-
-### Dockerfile
-El proyecto incluye un `Dockerfile` optimizado para:
-- Multi-stage build (reduce tamaño)
-- JDK 21 Temurin
-- Healthcheck integrado
-
----
-
-## 📚 Referencias
-
-- [GitFlow Guide](https://nvie.com/posts/a-successful-git-branching-model/)
-- [GitHub Actions Docs](https://docs.github.com/en/actions)
-- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
-- [Spring Boot Actuator](https://spring.io/guides/gs/actuator-service/)
-
----
-
-## 👥 Equipo
-
-- **Desenvolvedor:** Rodrigo Baeza
-- **Estudios:** DUOC - Ingeniería DevOps
-
----
-
-**Última actualización:** 2026-09-05  
-**Versión:** 1.0.0
-
-
-## 🤖 Uso de Inteligencia Artificial
-
-Se utilizó Claude (Anthropic) como apoyo para:
-- Debugging del pipeline de GitHub Actions (resolución de errores de configuración)
-- Redacción y estructuración de la documentación técnica (README)
+Se utilizó Claude (Anthropic) como apoyo para: diseño y depuración del pipeline de GitHub Actions, redacción de pruebas unitarias, configuración de Docker Compose y manifiestos de Kubernetes, y redacción y estructuración de esta documentación. Las configuraciones fueron revisadas, y los artefactos se verificaron ejecutando localmente las pruebas, la construcción de la imagen y el despliegue con Compose.

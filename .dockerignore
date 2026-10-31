@@ -1,0 +1,13 @@
+# Artefactos y metadatos que no deben viajar al contexto de build
+target/
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+k8s/
+docs/
+README.md
+docker-compose*.yml
+.env
+.env.*
