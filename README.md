@@ -1,6 +1,6 @@
 # Sanosysalvos - Geolocation Service
 
-Microservicio de geolocalización de la plataforma Sanosysalvos (Spring Boot 3.5, Java 21, PostgreSQL, JWT).
+Microservicio de geolocalización de la plataforma Sanosysalvos (Spring Boot 4.1, Java 21, PostgreSQL, JWT).
 Este repositorio incluye el **pipeline CI/CD completo en GitHub Actions**, contenerización, orquestación (Docker Compose y Kubernetes) y controles de calidad y seguridad (Evaluación Parcial 2, DOY0101 - Ingeniería DevOps).
 
 ## Tabla de contenidos
@@ -140,6 +140,15 @@ Reportes: HTML/XML/CSV en `target/site/jacoco/` (artefacto `jacoco-report` en ca
 
 **Alertas:** cuando un `push` a `main` o `develop` falla, el job `notify-failure` abre automáticamente un **issue** que lista el commit, los jobs fallidos y el enlace a la ejecución. GitHub además notifica por correo a los participantes del repositorio.
 
+**Gestión de vulnerabilidades (caso real de este proyecto):** la primera ejecución de Snyk bloqueó el pipeline con 33 hallazgos (7 críticos, 26 altos) en Spring Boot 3.5.16 (Tomcat, Spring Framework, Spring Security, Jackson, Micrometer). La línea 3.5 ya no recibe correcciones (`spring-framework` 6.2.19 es la última 6.2), por lo que la remediación fue **migrar a Spring Boot 4.1.2** en lugar de silenciar alertas. Además se reemplazó `jjwt-jackson` por `jjwt-gson`, lo que elimina del classpath Jackson 2 (9 avisos propios). Tras la migración Snyk bajó de 33 a 2 hallazgos, que se trataron así:
+
+| Hallazgo | Tratamiento |
+|---|---|
+| Jackson 3 `databind` 3.1.7, deserialización insegura (**crítico**, vía Flyway) | **Corregido:** se fija `jackson-bom.version` en 3.1.8 en el `pom.xml` |
+| `jaxb-core` 4.0.9, XXE (**alto**, vía Hibernate) | **Excepción documentada** en [`.snyk`](.snyk): no existe versión corregida (4.0.9 es la última) y no es alcanzable, porque la API solo procesa JSON y JAXB únicamente lee mapeos propios de Hibernate. **Vence el 2027-01-31** y debe revisarse; Dependabot propondrá la actualización en cuanto se publique un parche |
+
+La política `.snyk` solo permite excepciones con razón y vencimiento, y el umbral `high` del pipeline sigue bloqueando cualquier otro hallazgo.
+
 **Gobernanza adicional:**
 - Si falta un token de seguridad, el job **falla explícitamente** (nunca se omite el análisis en silencio).
 - El despliegue genera `JWT_SECRET` y la contraseña de BD **aleatorios por ejecución** y los enmascara en los logs.
@@ -208,7 +217,7 @@ commit (SHA completo)
 | `DOCKERHUB_TOKEN` | Access token de DockerHub |
 | `DOCKERHUB_REPONAME` | Nombre del repositorio de la imagen en DockerHub |
 
-**Variables (opcionales):** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`. Por defecto se usan `<owner>` y `<owner>_<repo>`; definirlas solo si el proyecto en SonarCloud tiene otros valores.
+**Variables (opcionales):** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY`. Por defecto se usan `<owner>` y `<owner>_<repo>` en minúsculas (como los genera SonarCloud); definirlas solo si el proyecto en SonarCloud tiene otros valores.
 
 **Branch protection (recomendado):** *Settings → Branches → Add rule* para `main` y `develop`: exigir Pull Request y que pasen los checks `Snyk - dependencias (SCA)`, `Pruebas unitarias y cobertura (JaCoCo)` y `SonarCloud - calidad y seguridad (SAST)`.
 

@@ -9,9 +9,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, pipeline-cicd]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, pipeline-cicd]
   workflow_dispatch:
 
 # Evita ejecuciones duplicadas en PRs; en main/develop nunca se cancela un despliegue en curso
@@ -164,9 +164,17 @@ jobs:
       - name: Análisis SonarCloud (espera el quality gate)
         env:
           SONAR_TOKEN: ${{ secrets.TOKENINGDEVOPS }}
-          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || github.repository_owner }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || format('{0}_{1}', github.repository_owner, github.event.repository.name) }}
+          # Opcionales: definirlas como variables del repo si difieren de los valores por defecto de SonarCloud
+          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
         run: |
+          # SonarCloud usa claves de organización en minúsculas; por defecto <owner>_<repo>
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          SONAR_ORGANIZATION="${SONAR_ORGANIZATION:-$OWNER}"
+          SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-${OWNER}_${REPO}}"
+          echo "Organización SonarCloud: ${SONAR_ORGANIZATION}"
+          echo "Project key SonarCloud:  ${SONAR_PROJECT_KEY}"
           mvn -B -ntp verify org.sonarsource.scanner.maven:sonar-maven-plugin:5.1.0.4751:sonar \
             -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
             -Dsonar.organization="${SONAR_ORGANIZATION}" \
